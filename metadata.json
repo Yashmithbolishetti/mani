@@ -1,0 +1,6 @@
+{
+  "name": "Manifashions Designer Studio",
+  "description": "Luxury Boutique & Designer Saree Studio Website (Premium Gen-Z + Luxury Fashion Experience)",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
