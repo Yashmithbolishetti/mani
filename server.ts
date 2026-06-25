@@ -1,201 +1,493 @@
 import express from "express";
 import path from "path";
 import fs from "fs";
+import dotenv from "dotenv";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
-import dotenv from "dotenv";
 
 dotenv.config();
 
 const app = express();
 const PORT = 3000;
+const DB_FILE = path.join(process.cwd(), "db.json");
 
-// Enable JSON parse middleware
 app.use(express.json());
 
-// Prepare database path
-const DATA_DIR = path.join(process.cwd(), "src", "data");
-const LEADS_FILE = path.join(DATA_DIR, "leads.json");
-
-// Ensure data directory and leads file exist
-if (!fs.existsSync(DATA_DIR)) {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-}
-if (!fs.existsSync(LEADS_FILE)) {
-  fs.writeFileSync(LEADS_FILE, JSON.stringify([], null, 2), "utf-8");
-}
-
-// Helper to read leads database
-function readLeads() {
-  try {
-    const data = fs.readFileSync(LEADS_FILE, "utf-8");
-    return JSON.parse(data);
-  } catch (err) {
-    console.error("Error reading leads file:", err);
-    return [];
-  }
-}
-
-// Helper to write leads database
-function writeLeads(leads: any) {
-  try {
-    fs.writeFileSync(LEADS_FILE, JSON.stringify(leads, null, 2), "utf-8");
-    return true;
-  } catch (err) {
-    console.error("Error writing leads file:", err);
-    return false;
-  }
-}
-
-// ----------------------------------------------------
-// API ROUTES
-// ----------------------------------------------------
-
-// 1. Submit Saree Lead Form
-app.post("/api/leads", (req, res) => {
-  const { fullName, mobile, email, locality, city, interestedIn, budget, message } = req.body;
-
-  if (!fullName || !mobile) {
-    return res.status(400).json({ error: "Full Name and Mobile Number are required." });
-  }
-
-  const leads = readLeads();
-  const newLead = {
-    id: `lead_${Date.now()}`,
-    fullName,
-    mobile,
-    email: email || "N/A",
-    locality: locality || "N/A",
-    city: city || "N/A",
-    interestedIn: interestedIn || "General Collection",
-    budget: budget || "Not specified",
-    message: message || "",
-    timestamp: new Date().toISOString(),
+// Initialize database with premium seed data if empty
+function initDb() {
+  const defaultDb = {
+    appointments: [
+      {
+        id: "appt_1",
+        fullName: "Anjali Sharma",
+        mobileNumber: "919876543210",
+        email: "anjali@gmail.com",
+        preferredDate: "2026-06-28",
+        preferredTime: "11:30",
+        serviceRequired: "Bridal Makeup",
+        beautyConcern: "Dullness, hydration before big day",
+        specialRequests: "Needs traditional Telugu bridal style with jasmine hair styling.",
+        status: "Confirmed",
+        createdAt: new Date().toISOString()
+      },
+      {
+        id: "appt_2",
+        fullName: "Priya Patel",
+        mobileNumber: "916305423546",
+        email: "priya.patel@outlook.com",
+        preferredDate: "2026-06-30",
+        preferredTime: "14:00",
+        serviceRequired: "Hydra Facial",
+        beautyConcern: "Acne scars and hyperpigmentation",
+        specialRequests: "First time trying a premium facial.",
+        status: "Pending",
+        createdAt: new Date().toISOString()
+      }
+    ],
+    beforeAfter: [
+      {
+        id: "ba_1",
+        beforeUrl: "https://images.unsplash.com/photo-1596704017254-9b121068fb31?auto=format&fit=crop&q=80&w=600",
+        afterUrl: "https://images.unsplash.com/photo-1512290923902-8a9f81dc236c?auto=format&fit=crop&q=80&w=600",
+        serviceName: "Bridal Glow Makeup",
+        description: "Elegant airbrush makeup bridal transformation with gold accents.",
+        createdAt: new Date().toISOString()
+      },
+      {
+        id: "ba_2",
+        beforeUrl: "https://images.unsplash.com/photo-1582095133179-bfd08e2fc6b3?auto=format&fit=crop&q=80&w=600",
+        afterUrl: "https://images.unsplash.com/photo-1562322140-8baeececf3df?auto=format&fit=crop&q=80&w=600",
+        serviceName: "Keratin Smooth Treatment",
+        description: "Rejuvenating dull, frizzy curls into high-shine premium silk finish.",
+        createdAt: new Date().toISOString()
+      }
+    ],
+    gallery: [
+      {
+        id: "gal_1",
+        imageUrl: "https://images.unsplash.com/photo-1560066984-138dadb4c035?auto=format&fit=crop&q=80&w=800",
+        category: "Hair",
+        title: "Vogue Premium Hair Sculpting",
+        createdAt: new Date().toISOString()
+      },
+      {
+        id: "gal_2",
+        imageUrl: "https://images.unsplash.com/photo-1512290923902-8a9f81dc236c?auto=format&fit=crop&q=80&w=800",
+        category: "Treatments",
+        title: "Intense Gold Hydra Facial Spa",
+        createdAt: new Date().toISOString()
+      },
+      {
+        id: "gal_3",
+        imageUrl: "https://images.unsplash.com/photo-1487412720507-e7ab37603c6f?auto=format&fit=crop&q=80&w=800",
+        category: "Makeup",
+        title: "High-Fashion Editorial Session",
+        createdAt: new Date().toISOString()
+      },
+      {
+        id: "gal_4",
+        imageUrl: "https://images.unsplash.com/photo-1522335789203-aabd1fc54bc9?auto=format&fit=crop&q=80&w=800",
+        category: "Customers",
+        title: "Radiant Golden Hour Glow",
+        createdAt: new Date().toISOString()
+      },
+      {
+        id: "gal_5",
+        imageUrl: "https://images.unsplash.com/photo-1515377905703-c4788e51af15?auto=format&fit=crop&q=80&w=800",
+        category: "Interior",
+        title: "Private Bridal Dressing Suite",
+        createdAt: new Date().toISOString()
+      }
+    ],
+    chats: [] as any[]
   };
 
-  leads.push(newLead);
-  writeLeads(leads);
+  if (!fs.existsSync(DB_FILE)) {
+    fs.writeFileSync(DB_FILE, JSON.stringify(defaultDb, null, 2), "utf-8");
+  } else {
+    try {
+      const content = fs.readFileSync(DB_FILE, "utf-8");
+      JSON.parse(content);
+    } catch (e) {
+      // Re-write if file corrupted
+      fs.writeFileSync(DB_FILE, JSON.stringify(defaultDb, null, 2), "utf-8");
+    }
+  }
+}
+
+initDb();
+
+function getDb() {
+  return JSON.parse(fs.readFileSync(DB_FILE, "utf-8"));
+}
+
+function writeDb(data: any) {
+  fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), "utf-8");
+}
+
+// Lazy init Gemini client to protect against startup crashes if API key is not present
+let aiClient: GoogleGenAI | null = null;
+function getAiClient() {
+  if (!aiClient) {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (apiKey && apiKey !== "MY_GEMINI_API_KEY") {
+      aiClient = new GoogleGenAI({
+        apiKey,
+        httpOptions: {
+          headers: {
+            "User-Agent": "aistudio-build",
+          },
+        },
+      });
+    }
+  }
+  return aiClient;
+}
+
+// --- API ROUTES ---
+
+// GET: Server Status & Config
+app.get("/api/health", (req, res) => {
+  res.json({ status: "ok", time: new Date().toISOString() });
+});
+
+// GET & POST: Appointments (Bookings / Leads)
+app.get("/api/appointments", (req, res) => {
+  const dbData = getDb();
+  res.json(dbData.appointments || []);
+});
+
+app.post("/api/appointments", (req, res) => {
+  const {
+    fullName,
+    mobileNumber,
+    email,
+    preferredDate,
+    preferredTime,
+    serviceRequired,
+    beautyConcern,
+    specialRequests,
+  } = req.body;
+
+  if (!fullName || !mobileNumber || !preferredDate || !preferredTime || !serviceRequired) {
+    return res.status(400).json({ error: "Required fields are missing." });
+  }
+
+  const dbData = getDb();
+  const newAppointment = {
+    id: "appt_" + Date.now(),
+    fullName,
+    mobileNumber,
+    email: email || "",
+    preferredDate,
+    preferredTime,
+    serviceRequired,
+    beautyConcern: beautyConcern || "None",
+    specialRequests: specialRequests || "None",
+    status: "Pending",
+    createdAt: new Date().toISOString(),
+  };
+
+  dbData.appointments.unshift(newAppointment);
+  writeDb(dbData);
+
+  // SIMULATE REAL-TIME MULTI-CHANNEL NOTIFICATIONS:
+  // 1. WhatsApp Notification: Trigger link detail generator
+  const whatsappUrl = `https://wa.me/916305423546?text=${encodeURIComponent(
+    `✨ *DREAMS BEAUTY CARE* ✨\n\nNew Appointment Booking Request!\n\n👤 *Client:* ${fullName}\n📞 *Phone:* ${mobileNumber}\n📅 *Date:* ${preferredDate}\n⏰ *Time:* ${preferredTime}\n💇‍♀️ *Service:* ${serviceRequired}\n💅 *Concern:* ${beautyConcern || "None"}\n📝 *Requests:* ${specialRequests || "None"}\n\n_Please confirm the slot in the Admin Panel!_`
+  )}`;
 
   res.status(201).json({
     success: true,
-    message: "Your premium custom design inquiry has been recorded successfully!",
-    lead: newLead,
+    message: "Appointment created successfully!",
+    appointment: newAppointment,
+    whatsappNotificationUrl: whatsappUrl,
+    simulatedEmailAlert: {
+      sentToOwner: true,
+      ownerEmail: "owner@dreamsbeautycare.com",
+      subject: `[New Appointment] Dreams Beauty Care: ${fullName} - ${serviceRequired}`,
+    },
   });
 });
 
-// 2. Read Saree Leads (Admin Panel)
-app.get("/api/leads", (req, res) => {
-  // Simple administrative authorization check from query headers or query params
-  const password = req.query.pwd;
-  if (password !== "mani2026") {
-    return res.status(401).json({ error: "Unauthorized access: Invalid key." });
+// PATCH: Update Appointment Status
+app.patch("/api/appointments/:id", (req, res) => {
+  const { id } = req.params;
+  const { status } = req.body;
+
+  if (!status) {
+    return res.status(400).json({ error: "Status is required." });
   }
-  const leads = readLeads();
-  res.json({ success: true, leads });
+
+  const dbData = getDb();
+  const index = dbData.appointments.findIndex((a: any) => a.id === id);
+
+  if (index === -1) {
+    return res.status(404).json({ error: "Appointment not found." });
+  }
+
+  dbData.appointments[index].status = status;
+  writeDb(dbData);
+
+  res.json({
+    success: true,
+    appointment: dbData.appointments[index],
+  });
 });
 
-// 3. Clear Leads (Admin Action)
-app.post("/api/leads/clear", (req, res) => {
-  const password = req.body.pwd;
-  if (password !== "mani2026") {
-    return res.status(401).json({ error: "Unauthorized access." });
-  }
-  writeLeads([]);
-  res.json({ success: true, message: "Database cleared successfully." });
+// DELETE: Delete Appointment
+app.delete("/api/appointments/:id", (req, res) => {
+  const { id } = req.params;
+  const dbData = getDb();
+  const filtered = dbData.appointments.filter((a: any) => a.id !== id);
+  dbData.appointments = filtered;
+  writeDb(dbData);
+  res.json({ success: true, message: "Appointment deleted." });
 });
 
-// 4. Secure Server-Side Gemini Designer Recommendations
-app.post("/api/recommendations", async (req, res) => {
-  const { fullName, interestedIn, budget, message, stylePreferences } = req.body;
+// GET & POST: Before/After Transformations
+app.get("/api/before-after", (req, res) => {
+  const dbData = getDb();
+  res.json(dbData.beforeAfter || []);
+});
 
-  if (!fullName) {
-    return res.status(400).json({ error: "User name is required for recommendations." });
+app.post("/api/before-after", (req, res) => {
+  const { beforeUrl, afterUrl, serviceName, description } = req.body;
+
+  if (!beforeUrl || !afterUrl || !serviceName) {
+    return res.status(400).json({ error: "Before URL, After URL, and Service Name are required." });
   }
+
+  const dbData = getDb();
+  const newItem = {
+    id: "ba_" + Date.now(),
+    beforeUrl,
+    afterUrl,
+    serviceName,
+    description: description || "",
+    createdAt: new Date().toISOString(),
+  };
+
+  dbData.beforeAfter.unshift(newItem);
+  writeDb(dbData);
+
+  res.status(201).json({ success: true, item: newItem });
+});
+
+// DELETE: Before/After item
+app.delete("/api/before-after/:id", (req, res) => {
+  const { id } = req.params;
+  const dbData = getDb();
+  dbData.beforeAfter = dbData.beforeAfter.filter((item: any) => item.id !== id);
+  writeDb(dbData);
+  res.json({ success: true });
+});
+
+// GET & POST: Gallery Items
+app.get("/api/gallery", (req, res) => {
+  const dbData = getDb();
+  res.json(dbData.gallery || []);
+});
+
+app.post("/api/gallery", (req, res) => {
+  const { imageUrl, category, title } = req.body;
+
+  if (!imageUrl || !category || !title) {
+    return res.status(400).json({ error: "Image URL, category, and title are required." });
+  }
+
+  const dbData = getDb();
+  const newItem = {
+    id: "gal_" + Date.now(),
+    imageUrl,
+    category,
+    title,
+    createdAt: new Date().toISOString(),
+  };
+
+  dbData.gallery.unshift(newItem);
+  writeDb(dbData);
+
+  res.status(201).json({ success: true, item: newItem });
+});
+
+// DELETE: Gallery Item
+app.delete("/api/gallery/:id", (req, res) => {
+  const { id } = req.params;
+  const dbData = getDb();
+  dbData.gallery = dbData.gallery.filter((g: any) => g.id !== id);
+  writeDb(dbData);
+  res.json({ success: true });
+});
+
+// POST: AI Chat Assistant (with server-side Gemini 3.5 Flash)
+app.post("/api/chat", async (req, res) => {
+  const { message, history } = req.body;
+
+  if (!message) {
+    return res.status(400).json({ error: "Message is required." });
+  }
+
+  const systemPrompt = `You are "Aura", the elegant AI Beauty & Bridal Consultant for "Dreams Beauty Care", located above Laxmi Ganapathi Jewellers on Market Road, Mancherial, Telangana. 
+
+Your persona is:
+- High-society, luxury-focused, warm, hospitable, and impeccably professional (like an international beauty director).
+- Speak with confidence, luxury aesthetics, and graceful hospitality. Use phrases like "Welcome to the world of Dreams, darling," "magnificent," "indulge," "bespoke."
+- When giving recommendations, describe treatments with poetic sensory language (e.g., describing Hydra Facial as "infusing your skin with layers of pure cellular hydration, leaving you with an ethereal, morning-dew radiance").
+
+Key information to ground your answers:
+- Services: Hair styling, Hair Spa, Keratin smooth treatments, Hydra Facial, luxury skin whitening facials, Bridal Makeup (specialists in South Indian & traditional Telangana bridal transformations), Party makeup, customized Pre-Bridal packages, professional nail art, manicures, pedicures.
+- Address: Beside Archana Tex, Market Rd, above Laxmi Ganapathi Jewellers, Mancherial, Telangana 504208
+- Phone & Bookings: 063054 23546
+- Hours: Open Daily, Closes at 10 PM. Note: Ashura or festivals might affect these hours.
+- Guide guests to book appointments using the "Book Appointment" form directly on the page, or clicking the floating WhatsApp buttons. Mention that our experts provide free customized skincare and hair consultations prior to any premium treatment.
+
+Format your response in beautifully readable Markdown. Add headers, lists, and bold key services to make reading luxurious. Limit responses to 2-3 brief, highly tailored paragraphs. Ensure you always prompt them gently to finalize their reservation!`;
 
   try {
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-      return res.status(500).json({
-        error: "Gemini API key is not configured inside the server environment. Please make sure to add it.",
-      });
+    const ai = getAiClient();
+
+    if (!ai) {
+      // Fallback response generator if GEMINI_API_KEY is not configured
+      const fallbackResponse = generateFallbackAiResponse(message);
+      return res.json({ text: fallbackResponse });
     }
 
-    // Initialize Server-Side GoogleGenAI Client
-    const ai = new GoogleGenAI({
-      apiKey: apiKey,
-      httpOptions: {
-        headers: {
-          "User-Agent": "aistudio-build",
-        },
+    // Format history for @google/genai format
+    const chatSession = ai.chats.create({
+      model: "gemini-3.5-flash",
+      config: {
+        systemInstruction: systemPrompt,
+        temperature: 0.7,
       },
     });
 
-    const userPrompt = `
-      You are the Elite Lead Designer at "Manifashions Designer Studio" in Mancherial, Telangana.
-      A customer named "${fullName}" is looking for dynamic personalized recommendations. Provide an ultra-premium, fashion-insider styling worksheet written in direct, elegant, hospitable fashion language.
-      
-      Customer Preferences:
-      - Saree Category: ${interestedIn}
-      - Budget Range: ${budget}
-      - Custom Message / Body Type / Styling request: ${message || "Wants elegant custom design suggestions."}
-      - Optional Preferences: ${stylePreferences || "Prefers boutique luxury style"}
-      
-      Please structure your recommendations exactly like a royal customized styling sheet from Sabyasachi or Pernia's Pop-up shop, using the following sections:
-      
-      1. ✨ THE VISION: A summary of the majestic mood, styling story, and statement theme curated for them.
-      2. 🧵 SELECTED TEXTILES & PALETTE: Suggest specific luxurious fabrics (such as Organza, Banarasi Kora, Tussar Silk, French Lace) and elegant color combinations that fits the colors of Manifashions (deep emerald green, rose gold accents, champagne border, ivory drapes).
-      3. 🪞 BLOUSE DESIGN & PATTERN: Bespoke recommendations for their necklines, sleeves (e.g., puff organza, heavy zari boarders, high neck royal collar), and handcrafted embroidery motifs.
-      4. 💎 ACCESSORIZING ARCHITECTURE: Styling tips including jewelry pairings (e.g., Temple jewelry, premium AD chokers, uncut diamonds), hairstyle, drape style (e.g., traditional seedha pallu or modern infinity cowl drapes), and footwear.
-      
-      Tone: Graceful, warm, fashion-forward, professional, luxury boutique expert. Avoid generic responses, and keep the recommendations descriptive yet concise (around 250-320 words).
-    `;
+    // Send history first if present
+    if (history && Array.isArray(history) && history.length > 0) {
+      // We can restore context by setting messages or passing them.
+      // For simplicity, we can also pass them as a list of contents or run chat.sendMessage
+      // To keep it clean and robust, we can bundle the conversation history inside a single prompt context or run sequentially.
+      // Let's pass the conversation history in the user prompt directly to ensure the chat context is fully respected in a single call.
+    }
+
+    // Single prompt combining history for absolute reliability
+    const formattedPrompt = history && history.length > 0
+      ? `Conversation History:\n${history.map((m: any) => `${m.role === 'user' ? 'Guest' : 'Consultant Aura'}: ${m.text}`).join('\n')}\n\nGuest's New Message: ${message}\n\nPlease respond elegantly as Aura:`
+      : message;
 
     const response = await ai.models.generateContent({
       model: "gemini-3.5-flash",
-      contents: userPrompt,
+      contents: formattedPrompt,
+      config: {
+        systemInstruction: systemPrompt,
+      },
     });
 
-    const recommendationText = response.text || "Our lead studio designers will be styling your dream saree soon!";
-    res.json({ success: true, recommendation: recommendationText });
+    const replyText = response.text || "I am here to guide your beauty journey, darling. How else may I assist you?";
+
+    // Save interaction log to Db for leads visibility
+    try {
+      const dbData = getDb();
+      if (!dbData.chats) dbData.chats = [];
+      dbData.chats.push({
+        id: "chat_" + Date.now(),
+        message,
+        reply: replyText,
+        createdAt: new Date().toISOString()
+      });
+      writeDb(dbData);
+    } catch (e) {
+      // ignore log error
+    }
+
+    res.json({ text: replyText });
+
   } catch (error: any) {
-    console.error("Gemini Recommendations Error:", error);
-    res.status(500).json({
-      error: "Our styling engine is busy reflecting your luxury layout. Our designer team will email or text you directly!",
-      detail: error.message,
-    });
+    console.error("Gemini API Error:", error);
+    // Graceful fallback so UI never fails
+    const fallbackResponse = generateFallbackAiResponse(message);
+    res.json({ text: fallbackResponse, error: error?.message || "Internal server error" });
   }
 });
 
-// ----------------------------------------------------
-// DEV / PROD HOSTING
-// ----------------------------------------------------
+// GET: Chat logs for owner
+app.get("/api/chats-log", (req, res) => {
+  const dbData = getDb();
+  res.json(dbData.chats || []);
+});
 
-async function start() {
+// Fallback rule-based beauty assistant response
+function generateFallbackAiResponse(message: string): string {
+  const msg = message.toLowerCase();
+  
+  if (msg.includes("hair") || msg.includes("cut") || msg.includes("style") || msg.includes("color")) {
+    return `### ✨ Beautiful Choice, Darling!
+
+For your hair, we recommend our signature **Keratin Silk Treatment** or our premium **Vogue Hair Spa**, perfect for restoring lush volume, deep nourishment, and a high-end glossy shine.
+
+Our expert stylists in Mancherial specialize in customized haircuts and high-fashion coloring that perfectly frame your features.
+
+**Next Steps:**
+1. Use our **Online Booking Form** to reserve a time.
+2. Or, click the floating **WhatsApp** icon to discuss your hair aspirations with an expert!`;
+  }
+  
+  if (msg.includes("bridal") || msg.includes("marriage") || msg.includes("wedding") || msg.includes("makeup")) {
+    return `### 👰 Dreams Bridal Beauty Transformation
+
+Welcome to the ultimate bridal journey, darling! At *Dreams Beauty Care*, our certified bridal specialists craft magnificent traditional Telugu and contemporary modern bridal looks.
+
+Our luxury bridal makeup package includes:
+- **Flawless Premium HD / Airbrush Makeup**
+- **Saree Draping & Traditional Jewel Settings**
+- **Bespoke Hair Design with Fresh Jasmine Flowers**
+- **Pre-Bridal Golden Glow Skincare Rituals**
+
+We would love to host you for a private bridal consultation. Please fill out our appointment form or contact our owner directly at **063054 23546** to customize your look.`;
+  }
+
+  if (msg.includes("skin") || msg.includes("facial") || msg.includes("glow") || msg.includes("hydra")) {
+    return `### ✨ Ethereal Radiant Skincare
+
+Indulge your skin with our world-class **Intense Gold Hydra Facial**. This ultra-luxurious treatment deeply cleanses, exfoliates, and infuses your skin with premium serums, leaving you with an instant morning-dew radiance.
+
+We also offer customized fruit facials, organic peel-offs, and skin-brightening treatments to address all skincare concerns.
+
+Please complete the booking form with your skincare concern, and our expert aesthetician will guide your journey.`;
+  }
+
+  return `### ✨ Welcome to Dreams Beauty Care, Darling
+
+I am **Aura**, your virtual beauty consultant. Our boutique salon above Laxmi Ganapathi Jewellers in Mancherial is designed to make beauty unforgettable.
+
+How can I pamper you today?
+- 💇‍♀️ **Premium Hair Treatments** (Keratin, Hair Spa, Smoothening)
+- 💆‍♀️ **Aesthetic Skincare & Facials** (Hydra Facial, Glow Therapy)
+- 👰 **Bespoke Bridal Makeovers** (Specialized traditional Telugu bridal care)
+- 💅 **Nail Art, Manicures & Pedicures**
+
+Please fill in our **Online Appointment Form** to schedule your luxurious retreat, or ask me any question about our premium treatments!`;
+}
+
+// Vite integration for development vs production
+async function startServer() {
   if (process.env.NODE_ENV !== "production") {
-    // Development server with Vite integration
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
     });
-    
     app.use(vite.middlewares);
-    
-    console.log("Starting in DEVELOPMENT mode with Vite Middleware.");
   } else {
-    // Production build file server
     const distPath = path.join(process.cwd(), "dist");
     app.use(express.static(distPath));
-    
     app.get("*", (req, res) => {
       res.sendFile(path.join(distPath, "index.html"));
     });
-    
-    console.log("Starting in PRODUCTION mode. Serving pre-compiled bundles.");
   }
 
   app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Manifashions Saree Studio Server is live at http://0.0.0.0:${PORT}`);
+    console.log(`[Dreams Beauty Care] Full-stack server running on http://localhost:${PORT}`);
   });
 }
 
-start();
+startServer();
